@@ -1,0 +1,9 @@
+runs/
+MNIST/
+FashionMNIST/
+__pycache__/
+*.pck
+*.pth
+*.sh
+*.out
+*.mat
