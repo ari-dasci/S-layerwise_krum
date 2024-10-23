@@ -63,8 +63,8 @@ def get_transforms(dataset: str):
             )
         case "celeba_iid":
             from torchvision.models import EfficientNet_B0_Weights
+
             return EfficientNet_B0_Weights.DEFAULT.transforms()
 
-            
         case _:
             raise ValueError(f"Unknown dataset: {dataset}")
