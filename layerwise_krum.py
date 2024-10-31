@@ -1,33 +1,24 @@
-from flexclash.pool import multikrum, bulyan
 import argparse
-from flex.pool import fed_avg
-from flex.pool.decorators import (
-    aggregate_weights,
-    set_aggregated_weights,
-    collect_clients_weights,
-    deploy_server_model,
-)
-import tensorly as tl
-from typing import Dict, Hashable, List
 import copy
+from functools import partial
+from typing import Dict, Hashable
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from flex.data import Dataset
 from flex.model import FlexModel
-from flex.pool import FlexPool, init_server_model
+from flex.pool import FlexPool, fed_avg, init_server_model
+from flex.pool.decorators import (collect_clients_weights, deploy_server_model,
+                                  set_aggregated_weights)
+from flexclash.pool import bulyan, multikrum
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from functools import partial
 
-
+from aggregators import (blockwise_krum, get_clients_weights_celeba_blockwise,
+                         layerwise_bulyan, layerwise_krum)
 from datasets import get_dataset, poison_dataset
-from utils import (
-    parallel_pool_map,
-    blockwise_krum,
-    get_clients_weights_celeba_blockwise,
-)
 from models import get_model, get_transforms
+from utils import parallel_pool_map
 
 assert torch.cuda.is_available(), "CUDA not available"
 device = "cuda"
@@ -35,22 +26,6 @@ n_gpus = torch.cuda.device_count()
 
 round = 0
 krum = partial(multikrum, m=1)
-
-
-@aggregate_weights
-def layerwise_krum(weights: List[List[tl.tensor]]):
-    return [
-        multikrum.__wrapped__([[weights[j][i]] for j in range(len(weights))], m=1)[0]
-        for i in range(len(weights[0]))
-    ]
-
-
-@aggregate_weights
-def layerwise_bulyan(weights: List[List[tl.tensor]]):
-    return [
-        bulyan.__wrapped__([[weights[j][i]] for j in range(len(weights))], m=1)[0]
-        for i in range(len(weights[0]))
-    ]
 
 
 parser = argparse.ArgumentParser(description="Federated Learning with Krum Aggregation")
@@ -270,7 +245,7 @@ def get_gaussian_clients_weights(client_flex_model: FlexModel):
     # We assume that the first weight is de cnn1 weight
     mean = weights[0].mean()
     std = weights[0].std()
-    weights[0] = torch.normal(mean, 2 * std, weights[0].shape).to(dev)
+    weights[0] = torch.normal(mean, std, weights[0].shape).to(dev)
     return weights
 
 
