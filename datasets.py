@@ -1,7 +1,9 @@
-from flex.data import FedDataset, Dataset, FedDatasetConfig, FedDataDistribution
-from flexclash.data import data_poisoner
 from typing import Tuple
+
 import numpy as np
+from flex.data import (Dataset, FedDataDistribution, FedDataset,
+                       FedDatasetConfig)
+from flexclash.data import data_poisoner
 
 
 def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:
@@ -68,8 +70,8 @@ def _fashion_emnist() -> Tuple[FedDataset, Dataset]:
 
 
 def _fashion_non_iid() -> Tuple[FedDataset, Dataset]:
-    from torchvision.datasets import FashionMNIST
     import dill as pickle
+    from torchvision.datasets import FashionMNIST
 
     try:
         flex_dataset = pickle.load(open("fashion_non_iid_fed.pck", "rb"))
@@ -136,8 +138,8 @@ def _celeba_iid():
 
 
 def _celeba_non_iid():
-    from flex.datasets.federated_datasets import federated_celeba
     import dill as pickle
+    from flex.datasets.federated_datasets import federated_celeba
 
     try:
         with open("celeba_fed.pck", "rb") as f:
