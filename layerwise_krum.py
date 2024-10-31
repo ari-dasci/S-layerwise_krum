@@ -7,15 +7,24 @@ import torch
 from flex.data import Dataset
 from flex.model import FlexModel
 from flex.pool import FlexPool, fed_avg, init_server_model
-from flex.pool.decorators import (collect_clients_weights, deploy_server_model,
-                                  set_aggregated_weights)
+from flex.pool.decorators import (
+    collect_clients_weights,
+    deploy_server_model,
+    set_aggregated_weights,
+)
 from flexclash.pool import bulyan, multikrum
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from aggregators import (blockwise_krum, get_clients_weights_celeba_blockwise,
-                         layerwise_bulyan, layerwise_krum)
+from aggregators import (
+    blockwise_krum,
+    get_clients_weights_celeba_blockwise,
+    layerwise_bulyan,
+    layerwise_krum,
+    krum_cosine_similarity,
+    krum_cosine_similarity_layerwise,
+)
 from datasets import get_dataset, poison_dataset
 from models import get_model, get_transforms
 from utils import parallel_pool_map
@@ -57,6 +66,8 @@ parser.add_argument(
         "bulyan",
         "layerwise_bulyan",
         "blockwise_krum",
+        "cosine_krum",
+        "layerwise_cosine_krum",
     ],
     default="fedavg",
     help="Aggregation operator to use",
@@ -106,6 +117,10 @@ match args.agg:
         AGG = layerwise_bulyan
     case "blockwise_krum":
         AGG = blockwise_krum
+    case "cosine_krum":
+        AGG = krum_cosine_similarity
+    case "layerwise_cosine_krum":
+        AGG = krum_cosine_similarity_layerwise
     case _:
         raise ValueError(f"Unknown aggregation operator: {args.agg}")
 

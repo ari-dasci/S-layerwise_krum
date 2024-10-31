@@ -75,3 +75,84 @@ def blockwise_krum(weights: List[Dict[str, tl.tensor]]):
     ]
     the_rest = list(reduce(lambda x, y: x + y, the_rest, []))
     return before + the_rest + after
+
+
+def _krum_cosine_similarity(list_of_updates: List[torch.Tensor], f: int = 1):
+    """
+    Implements the Krum operator using cosine similarity in PyTorch.
+
+    Args:
+        updates (torch.Tensor): Tensor of shape (n_clients, update_size).
+        f (int): Maximum number of Byzantine clients to tolerate.
+
+    Returns:
+        torch.Tensor: The aggregated update selected by the Krum operator.
+    """
+    updates = torch.stack(list_of_updates)
+    n_clients = updates.size(0)
+    # Normalize the updates to unit vectors
+    norm_updates = updates / updates.norm(dim=1, keepdim=True)
+    # Compute the cosine similarity matrix
+    similarities = torch.mm(norm_updates, norm_updates.t())
+    # Convert similarities to cosine distances
+    distances = 1 - similarities
+    # Exclude self-distances by setting the diagonal to infinity
+    distances.fill_diagonal_(float("inf"))
+    # Sort distances in ascending order
+    sorted_distances, _ = distances.sort(dim=1)
+    # Sum the smallest n - f - 2 distances for each client
+    k = n_clients - f - 2
+    scores = sorted_distances[:, :k].sum(dim=1)
+    # Select the client with the minimum score
+    min_score_index = scores.argmin()
+    # Return the selected update
+    return list_of_updates[min_score_index]
+
+
+@aggregate_weights
+def krum_cosine_similarity(list_of_weights: List[List[torch.Tensor]], f: int = 1):
+    # Flatten and stack the weights from each model
+    flattened_weights = [
+        torch.cat([torch.flatten(param) for param in model_weights])
+        for model_weights in list_of_weights
+    ]
+
+    # Call the original Krum function
+    selected_update = _krum_cosine_similarity(flattened_weights, f)
+
+    # Reconstruct the weights into the original parameter shapes
+    param_shapes = [param.shape for param in list_of_weights[0]]
+    offset = 0
+    selected_weights = []
+    for shape in param_shapes:
+        num_params = int(torch.tensor(shape).prod().item())
+        param = selected_update[slice(offset, offset + num_params)].view(shape)
+        selected_weights.append(param)
+        offset += num_params
+
+    return selected_weights
+
+
+@aggregate_weights
+def krum_cosine_similarity_layerwise(
+    list_of_weights: List[List[torch.Tensor]], f: int = 1
+):
+    selected_update = [
+        _krum_cosine_similarity(
+            [torch.flatten(list_of_weights[j][i]) for j in range(len(list_of_weights))],
+            f,
+        )
+        for i in range(len(list_of_weights[0]))
+    ]
+
+    # Reconstruct the weights into the original parameter shapes
+    param_shapes = [param.shape for param in list_of_weights[0]]
+    offset = 0
+    selected_weights = []
+    for shape in param_shapes:
+        num_params = int(torch.tensor(shape).prod().item())
+        param = selected_update[slice(offset, offset + num_params)].view(shape)
+        selected_weights.append(param)
+        offset += num_params
+
+    return selected_weights
