@@ -19,11 +19,14 @@ from tqdm import tqdm
 
 from aggregators import (
     blockwise_krum,
+    clip_by_norm,
     get_clients_weights_celeba_blockwise,
     layerwise_bulyan,
     layerwise_krum,
     krum_cosine_similarity,
     krum_cosine_similarity_layerwise,
+    bulyan_cosine_similarity,
+    bulyan_cosine_similarity_layerwise,
 )
 from datasets import get_dataset, poison_dataset
 from models import get_model, get_transforms
@@ -68,6 +71,8 @@ parser.add_argument(
         "blockwise_krum",
         "cosine_krum",
         "layerwise_cosine_krum",
+        "layerwise_cosine_bulyan",
+        "cosine_bulyan",
     ],
     default="fedavg",
     help="Aggregation operator to use",
@@ -98,6 +103,9 @@ parser.add_argument(
 parser.add_argument(
     "--persistclients", action="store_true", help="Whether to persist clients"
 )
+parser.add_argument(
+    "--clipgradients", action="store_true", help="Whether to clip gradients"
+)
 args = parser.parse_args()
 
 CLIENTS_PER_ROUND = args.clients - args.poisonedclients
@@ -121,8 +129,15 @@ match args.agg:
         AGG = krum_cosine_similarity
     case "layerwise_cosine_krum":
         AGG = krum_cosine_similarity_layerwise
+    case "layerwise_cosine_bulyan":
+        AGG = bulyan_cosine_similarity_layerwise
+    case "cosine_bulyan":
+        AGG = bulyan_cosine_similarity
     case _:
         raise ValueError(f"Unknown aggregation operator: {args.agg}")
+
+if args.clipgradients:
+    AGG = clip_by_norm(AGG)
 
 
 def get_summary_writer_filename(args):
@@ -132,6 +147,7 @@ def get_summary_writer_filename(args):
         "SGD" if args.epochs == 1 else "",
         "label_flipping" if args.labelflipping else "",
         "layer_gaussian" if args.layergaussian else "",
+        "ClipGrads" if args.clipgradients else "",
     ]
     return f"runs/{args.dataset}/" + "".join(filter(None, parts))
 
