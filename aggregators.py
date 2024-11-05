@@ -167,7 +167,7 @@ def krum_cosine_similarity_layerwise(
 
 
 def _bulyan_cosine_similarity(
-    list_of_updates: List[torch.Tensor], f: int = 1
+    list_of_updates: List[torch.Tensor], f: int = 1, m: int = 5
 ) -> torch.Tensor:
     """
     Implements the Bulyan operator using cosine similarity Krum in PyTorch.
@@ -186,7 +186,7 @@ def _bulyan_cosine_similarity(
             "Number of clients is too small for the given number of Byzantine clients."
         )
 
-    k = n - 2 * f
+    k = m
     selected_updates_indexes = _krum_cosine_similarity(updates, f, k)
     selected_updates = [updates[i] for i in selected_updates_indexes]
 
@@ -214,7 +214,7 @@ def _bulyan_cosine_similarity(
 
 @aggregate_weights
 def bulyan_cosine_similarity(
-    list_of_weights: List[List[torch.Tensor]], f: int = 1
+    list_of_weights: List[List[torch.Tensor]], f: int = 1, m: int = 5
 ) -> List[torch.Tensor]:
     """
     Aggregates model weights using the Bulyan operator based on cosine similarity Krum.
@@ -233,7 +233,7 @@ def bulyan_cosine_similarity(
     ]
 
     # Call the Bulyan function
-    aggregated_update = _bulyan_cosine_similarity(flattened_weights, f)
+    aggregated_update = _bulyan_cosine_similarity(flattened_weights, f, m)
 
     # Reconstruct the weights into the original parameter shapes
     param_shapes = [param.shape for param in list_of_weights[0]]
@@ -250,7 +250,7 @@ def bulyan_cosine_similarity(
 
 @aggregate_weights
 def bulyan_cosine_similarity_layerwise(
-    list_of_updates: List[List[torch.Tensor]], f: int = 1
+    list_of_updates: List[List[torch.Tensor]], f: int = 1, m: int = 5
 ) -> List[torch.Tensor]:
     """
     Implements the layer-wise Bulyan operator using cosine similarity Krum.
@@ -277,7 +277,7 @@ def bulyan_cosine_similarity_layerwise(
             client_updates[layer_idx].flatten() for client_updates in list_of_updates
         ]
         # Apply Bulyan using cosine similarity Krum to the layer
-        aggregated_layer = _bulyan_cosine_similarity(layer_updates, f)
+        aggregated_layer = _bulyan_cosine_similarity(layer_updates, f, m)
         # Reshape to original shape
         aggregated_layer = aggregated_layer.view(list_of_updates[0][layer_idx].shape)
         aggregated_update.append(aggregated_layer)

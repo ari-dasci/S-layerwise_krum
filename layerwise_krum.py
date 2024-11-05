@@ -106,6 +106,13 @@ parser.add_argument(
 parser.add_argument(
     "--clipgradients", action="store_true", help="Whether to clip gradients"
 )
+
+parser.add_argument(
+    "--f", type=int, default=1, help="Parameter for the Krum aggregation operator"
+)
+parser.add_argument(
+    "--m", type=int, default=1, help="Parameter for the Bulyan aggregation operator"
+)
 args = parser.parse_args()
 
 CLIENTS_PER_ROUND = args.clients - args.poisonedclients
@@ -138,6 +145,12 @@ match args.agg:
 
 if args.clipgradients:
     AGG = clip_by_norm(AGG)
+
+if args.agg != "fedavg":
+    AGG = partial(AGG, f=args.f)
+
+if "bulyan" in args.agg:
+    AGG = partial(AGG, m=args.m)
 
 
 def get_summary_writer_filename(args):
