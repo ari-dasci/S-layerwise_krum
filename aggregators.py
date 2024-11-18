@@ -10,9 +10,11 @@ from flexclash.pool import bulyan, multikrum
 
 
 @aggregate_weights
-def layerwise_krum(weights: List[List[tl.tensor]]):
+def layerwise_krum(weights: List[List[tl.tensor]], f: int = 1):
     return [
-        multikrum.__wrapped__([[weights[j][i]] for j in range(len(weights))], m=1)[0]
+        multikrum.__wrapped__([[weights[j][i]] for j in range(len(weights))], m=1, f=f)[
+            0
+        ]
         for i in range(len(weights[0]))
     ]
 
@@ -125,17 +127,7 @@ def krum_cosine_similarity(list_of_weights: List[List[torch.Tensor]], f: int = 1
         _krum_cosine_similarity(flattened_weights, f).item()
     ]
 
-    # Reconstruct the weights into the original parameter shapes
-    param_shapes = [param.shape for param in list_of_weights[0]]
-    offset = 0
-    selected_weights = []
-    for shape in param_shapes:
-        num_params = int(torch.tensor(shape).prod().item())
-        param = selected_update[slice(offset, offset + num_params)].view(shape)
-        selected_weights.append(param)
-        offset += num_params
-
-    return selected_weights
+    return selected_update
 
 
 @aggregate_weights
@@ -196,18 +188,9 @@ def _bulyan_cosine_similarity(
     )  # Shape: (num_selected, update_size)
 
     # Compute the Bulyan aggregation
-    bulyan_update = torch.zeros_like(stacked_updates[0])
-    num_coordinates = stacked_updates.size(1)
-
-    for i in range(num_coordinates):
-        # Collect the i-th coordinate from all selected updates
-        coordinate_values = stacked_updates[:, i]
-        # Sort the coordinate values
-        sorted_vals, _ = torch.sort(coordinate_values)
-        # Remove the smallest and largest 'f' values
-        trimmed_vals = sorted_vals[f:-f]
-        # Compute the mean of the remaining values
-        bulyan_update[i] = trimmed_vals.mean()
+    sorted_updates, _ = torch.sort(stacked_updates, dim=0)
+    trimmed_updates = sorted_updates[f:-f, :]
+    bulyan_update = trimmed_updates.mean(dim=0)
 
     return bulyan_update
 
