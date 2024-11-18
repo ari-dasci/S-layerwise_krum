@@ -1,8 +1,7 @@
 from typing import Tuple
 
 import numpy as np
-from flex.data import (Dataset, FedDataDistribution, FedDataset,
-                       FedDatasetConfig)
+from flex.data import Dataset, FedDataDistribution, FedDataset, FedDatasetConfig
 from flexclash.data import data_poisoner
 
 
@@ -20,6 +19,8 @@ def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:
             return _celeba_iid()
         case "celeba":
             return _celeba_non_iid()
+        case "cifar_10":
+            return _cifar_10_iid()
         case _:
             raise ValueError(f"Unknown dataset: {dataset}")
 
@@ -164,6 +165,31 @@ def _celeba_non_iid():
 
     flex_dataset = flex_dataset.apply(select_label)
     test_data = select_label(test_data)
+
+    return flex_dataset, test_data
+
+
+def _cifar_10_iid():
+    from torchvision.datasets import CIFAR10
+
+    train_data = CIFAR10(root=".", train=True, download=True, transform=None)
+    test_data = CIFAR10(root=".", train=False, download=True, transform=None)
+    flex_dataset = Dataset.from_torchvision_dataset(train_data)
+    test_data = Dataset.from_torchvision_dataset(test_data)
+
+    config = FedDatasetConfig(seed=0)
+    config.replacement = False
+    config.n_nodes = 200
+
+    flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
+
+    data_threshold = 30
+    cids = list(flex_dataset.keys())
+    for k in cids:
+        if len(flex_dataset[k]) < data_threshold:
+            del flex_dataset[k]
+
+    assert isinstance(flex_dataset, FedDataset)
 
     return flex_dataset, test_data
 

@@ -47,6 +47,8 @@ def get_model(dataset: str):
             return CNNModel()
         case "celeba" | "celeba_iid":
             return get_efficient()
+        case "cifar_10":
+            return get_efficient(num_classes=10)
         case _:
             raise ValueError(f"Unknown dataset: {dataset}")
 
@@ -61,7 +63,7 @@ def get_transforms(dataset: str):
             return transforms.Compose(
                 [transforms.ToPILImage(), EfficientNet_B0_Weights.DEFAULT.transforms()]
             )
-        case "celeba_iid":
+        case "celeba_iid" | "cifar_10":
             from torchvision.models import EfficientNet_B0_Weights
 
             return EfficientNet_B0_Weights.DEFAULT.transforms()
