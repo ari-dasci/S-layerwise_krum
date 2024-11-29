@@ -1,4 +1,5 @@
 from typing import Tuple
+from random import randint
 
 import numpy as np
 from flex.data import Dataset, FedDataDistribution, FedDataset, FedDatasetConfig
@@ -38,9 +39,16 @@ def _emnist_non_iid() -> Tuple[FedDataset, Dataset]:
 
 
 def _emnist_iid() -> Tuple[FedDataset, Dataset]:
-    from flex.datasets.federated_datasets import federated_emnist
+    from flex.datasets.standard_datasets import emnist
 
-    flex_dataset, test_data = federated_emnist(return_test=True)
+    flex_dataset, test_data = emnist()
+
+    config = FedDatasetConfig(seed=0)
+    config.replacement = False
+    config.n_nodes = 200
+
+    flex_dataset = FedDataDistribution.from_config(flex_dataset, config)
+
     return flex_dataset, test_data
 
 
@@ -204,5 +212,15 @@ def poison_dataset(dataset: FedDataset, num_classes: int, poison_ratio):
             if new_label != label:
                 break
         return img_array, new_label
+
+    return dataset.apply(_label_flipping, node_ids=poisoned_ids), poisoned_ids
+
+
+def poison_binary_dataset(dataset: FedDataset, poison_ratio):
+    poisoned_ids = list(dataset.keys())[: int(poison_ratio * len(dataset))]
+
+    @data_poisoner
+    def _label_flipping(img_array, label):
+        return img_array, np.eye(2)[randint(0, 1)]
 
     return dataset.apply(_label_flipping, node_ids=poisoned_ids), poisoned_ids
