@@ -28,7 +28,7 @@ from aggregators import (
     bulyan_cosine_similarity,
     bulyan_cosine_similarity_layerwise,
 )
-from datasets import get_dataset, poison_dataset
+from datasets import get_dataset, poison_dataset, poison_binary_dataset
 from models import get_model, get_transforms
 from utils import parallel_pool_map
 
@@ -74,7 +74,6 @@ parser.add_argument(
         "layerwise_cosine_krum",
         "layerwise_cosine_bulyan",
         "cosine_bulyan",
-        "cifar_10",
     ],
     default="fedavg",
     help="Aggregation operator to use",
@@ -162,7 +161,7 @@ def get_summary_writer_filename(args):
         "SGD" if args.epochs == 1 else "",
         "label_flipping" if args.labelflipping else "",
         "layer_gaussian" if args.layergaussian else "",
-        "ClipGrads" if args.clipgradients else "",
+        "gradients_clipped" if args.clipgradients else "",
     ]
     return f"runs/{args.dataset}/" + "".join(filter(None, parts))
 
@@ -179,10 +178,13 @@ if args.labelflipping or args.layergaussian:
         POISONED_PER_ROUND > 0
     ), "Using an attack requires at least one poisoned client per round"
     if args.labelflipping:
-        classes_in_dataset = len(set(test_data.y_data))
-        flex_dataset, poisoned_ids = poison_dataset(
-            flex_dataset, classes_in_dataset, 0.2
-        )
+        if args.dataset == "celeba" or args.dataset == "celeba_iid":
+            flex_dataset, poisoned_ids = poison_binary_dataset(flex_dataset, 0.2)
+        else:
+            classes_in_dataset = len(set(test_data.y_data))
+            flex_dataset, poisoned_ids = poison_dataset(
+                flex_dataset, classes_in_dataset, 0.2
+            )
     elif args.layergaussian:
         poisoned_ids = list(flex_dataset.keys())[: int(len(flex_dataset) * 0.2)]
     clean_ids = [cid for cid in clean_ids if cid not in poisoned_ids]
