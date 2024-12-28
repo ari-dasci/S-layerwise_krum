@@ -30,6 +30,7 @@ from aggregators import (
 )
 from datasets import get_dataset, poison_dataset, poison_binary_dataset
 from models import get_model, get_transforms
+from little import little_is_enough_attack
 from utils import parallel_pool_map
 
 assert torch.cuda.is_available(), "CUDA not available"
@@ -52,6 +53,8 @@ parser.add_argument(
         "fashion_non_iid",
         "celeba_iid",
         "cifar_10",
+        "celeba_attractive",
+        "celeba_different",
     ],
     default="emnist_non_iid",
     help="Dataset to use",
@@ -59,6 +62,11 @@ parser.add_argument(
 parser.add_argument(
     "--clients", type=int, default=100, help="Number of clients per round"
 )
+
+parser.add_argument(
+    "--lognum", type=int, default=0, help="Number of logs to keep in the tensorboard"
+)
+
 parser.add_argument("--epochs", type=int, default=10, help="Number of epochs to train")
 parser.add_argument(
     "--agg",
@@ -95,6 +103,9 @@ parser.add_argument(
 )
 parser.add_argument(
     "--modelreplacement", action="store_true", help="Whether to use model replacement"
+)
+parser.add_argument(
+    "--little", action="store_true", help="Whether to use the little attack"
 )
 parser.add_argument(
     "--layergaussian",
@@ -162,6 +173,8 @@ def get_summary_writer_filename(args):
         "label_flipping" if args.labelflipping else "",
         "layer_gaussian" if args.layergaussian else "",
         "gradients_clipped" if args.clipgradients else "",
+        "little" if args.little else "",
+        f"lognum_{args.lognum}" if args.lognum > 0 else "",
     ]
     return f"runs/{args.dataset}/" + "".join(filter(None, parts))
 
@@ -173,12 +186,16 @@ flex_dataset, test_data = get_dataset(args.dataset)
 clean_ids = list(flex_dataset.keys())
 poisoned_ids = []
 
-if args.labelflipping or args.layergaussian:
+if args.labelflipping or args.layergaussian or args.little:
     assert (
         POISONED_PER_ROUND > 0
     ), "Using an attack requires at least one poisoned client per round"
     if args.labelflipping:
-        if args.dataset == "celeba" or args.dataset == "celeba_iid":
+        if (
+            args.dataset == "celeba"
+            or args.dataset == "celeba_iid"
+            or args.dataset == "celeba_different"
+        ):
             flex_dataset, poisoned_ids = poison_binary_dataset(flex_dataset, 0.2)
         else:
             classes_in_dataset = len(set(test_data.y_data))
@@ -370,10 +387,10 @@ def obtain_metrics(server_flex_model: FlexModel, _):
             data, target = data.to(device), target.to(device)
             output = model(data)
             losses.append(criterion(output, target).item())
-            pred = output.data.max(1, keepdim=True)[1]
             if "celeba" in args.dataset:
-                test_acc += (pred.argmax(1) == target.argmax(1)).sum().cpu().item()
+                test_acc += (output.argmax(1) == target.argmax(1)).sum().cpu().item()
             else:
+                pred = output.data.max(1, keepdim=True)[1]
                 test_acc += pred.eq(target.data.view_as(pred)).long().cpu().sum().item()
 
     test_loss = sum(losses) / len(losses)
@@ -387,6 +404,14 @@ def clean_up_models(client_model: FlexModel, _):
 
     client_model.clear()
     gc.collect()
+
+
+def insert_little_attack(server_model: FlexModel, _):
+    weights = server_model["weights"]
+    poisoned_weights = little_is_enough_attack(
+        weights, args.clients, POISONED_PER_ROUND
+    )
+    server_model["weights"] = poisoned_weights + weights
 
 
 def train_base(pool: FlexPool, n_rounds=100):
@@ -410,6 +435,9 @@ def train_base(pool: FlexPool, n_rounds=100):
         else:
             selected_clean_clients.map(train)
         pool.aggregators.map(get_clients_weights, selected_clean_clients)
+
+        if args.little:
+            pool.aggregators.map(insert_little_attack)
 
         # TODO: Make compatible with persisting clients
         if args.labelflipping or args.layergaussian:
