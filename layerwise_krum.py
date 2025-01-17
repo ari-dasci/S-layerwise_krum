@@ -27,6 +27,10 @@ from aggregators import (
     krum_cosine_similarity_layerwise,
     bulyan_cosine_similarity,
     bulyan_cosine_similarity_layerwise,
+    geomed,
+    layerwise_geomed,
+    cosine_geomed,
+    layerwise_cosine_geomed,
 )
 from datasets import get_dataset, poison_dataset, poison_binary_dataset
 from models import get_model, get_transforms
@@ -82,6 +86,10 @@ parser.add_argument(
         "layerwise_cosine_krum",
         "layerwise_cosine_bulyan",
         "cosine_bulyan",
+        "geomed",
+        "layerwise_geomed",
+        "cosine_geomed",
+        "layerwise_cosine_geomed",
     ],
     default="fedavg",
     help="Aggregation operator to use",
@@ -123,7 +131,7 @@ parser.add_argument(
     "--f", type=int, default=1, help="Parameter for the Krum aggregation operator"
 )
 parser.add_argument(
-    "--m", type=int, default=1, help="Parameter for the Bulyan aggregation operator"
+    "--m", type=int, default=5, help="Parameter for the Bulyan aggregation operator"
 )
 args = parser.parse_args()
 
@@ -152,13 +160,21 @@ match args.agg:
         AGG = bulyan_cosine_similarity_layerwise
     case "cosine_bulyan":
         AGG = bulyan_cosine_similarity
+    case "geomed":
+        AGG = geomed
+    case "layerwise_geomed":
+        AGG = layerwise_geomed
+    case "cosine_geomed":
+        AGG = cosine_geomed
+    case "layerwise_cosine_geomed":
+        AGG = layerwise_cosine_geomed
     case _:
         raise ValueError(f"Unknown aggregation operator: {args.agg}")
 
 if args.clipgradients:
     AGG = clip_by_norm(AGG)
 
-if args.agg != "fedavg":
+if args.agg != "fedavg" and "geomed" not in args.agg:
     AGG = partial(AGG, f=args.f)
 
 if "bulyan" in args.agg:

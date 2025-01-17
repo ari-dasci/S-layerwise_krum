@@ -20,9 +20,9 @@ def layerwise_krum(weights: List[List[tl.tensor]], f: int = 1):
 
 
 @aggregate_weights
-def layerwise_bulyan(weights: List[List[tl.tensor]]):
+def layerwise_bulyan(weights: List[List[tl.tensor]], f: int = 1, m: int = 5):
     return [
-        bulyan.__wrapped__([[weights[j][i]] for j in range(len(weights))], m=1)[0]
+        bulyan.__wrapped__([[weights[j][i]] for j in range(len(weights))], m=m, f=f)[0]
         for i in range(len(weights[0]))
     ]
 
@@ -95,22 +95,14 @@ def _krum_cosine_similarity(
     """
     updates = torch.stack(list_of_updates)
     n_clients = updates.size(0)
-    # Normalize the updates to unit vectors
     norm_updates = updates / updates.norm(dim=1, keepdim=True)
-    # Compute the cosine similarity matrix
     similarities = torch.mm(norm_updates, norm_updates.t())
-    # Convert similarities to cosine distances
     distances = 1 - similarities
-    # Exclude self-distances by setting the diagonal to infinity
     distances.fill_diagonal_(float("inf"))
-    # Sort distances in ascending order
     sorted_distances, _ = distances.sort(dim=1)
-    # Sum the smallest n - f - 2 distances for each client
     m = n_clients - f - 2
     scores = sorted_distances[:, :m].sum(dim=1)
-    # Select the k client with the minimum score
     min_score_index = torch.topk(scores, k, largest=False).indices
-    # Return the selected update
     return min_score_index
 
 
@@ -161,26 +153,13 @@ def krum_cosine_similarity_layerwise(
 def _bulyan_cosine_similarity(
     list_of_updates: List[torch.Tensor], f: int = 1, m: int = 5
 ) -> torch.Tensor:
-    """
-    Implements the Bulyan operator using cosine similarity Krum in PyTorch.
+    if m < 2 * f + 2:
+        raise ValueError("m must be greater than 2*f+2")
 
-    Args:
-        list_of_updates (List[torch.Tensor]): List of client updates.
-        f (int): Maximum number of Byzantine clients to tolerate.
-
-    Returns:
-        torch.Tensor: The aggregated update computed by Bulyan.
-    """
-    updates = list_of_updates.copy()
-    n = len(updates)
-    if n < 4 * f + 3:
-        raise ValueError(
-            "Number of clients is too small for the given number of Byzantine clients."
-        )
-
+    flattened_updates = [tensor.view(-1) for tensor in list_of_updates]
     k = m
-    selected_updates_indexes = _krum_cosine_similarity(updates, f, k)
-    selected_updates = [updates[i] for i in selected_updates_indexes]
+    selected_updates_indexes = _krum_cosine_similarity(flattened_updates, f, k)
+    selected_updates = [list_of_updates[i] for i in selected_updates_indexes]
 
     # Stack the selected updates
     stacked_updates = torch.stack(
@@ -189,7 +168,7 @@ def _bulyan_cosine_similarity(
 
     # Compute the Bulyan aggregation
     sorted_updates, _ = torch.sort(stacked_updates, dim=0)
-    trimmed_updates = sorted_updates[f:-f, :]
+    trimmed_updates = sorted_updates[f:-f]
     bulyan_update = trimmed_updates.mean(dim=0)
 
     return bulyan_update
@@ -199,116 +178,128 @@ def _bulyan_cosine_similarity(
 def bulyan_cosine_similarity(
     list_of_weights: List[List[torch.Tensor]], f: int = 1, m: int = 5
 ) -> List[torch.Tensor]:
-    """
-    Aggregates model weights using the Bulyan operator based on cosine similarity Krum.
-
-    Args:
-        list_of_weights (List[List[torch.Tensor]]): List of model weights from clients.
-        f (int): Maximum number of Byzantine clients to tolerate.
-
-    Returns:
-        List[torch.Tensor]: Aggregated model weights.
-    """
-    # Flatten the weights from each model
     flattened_weights = [
         torch.cat([param.view(-1) for param in model_weights])
         for model_weights in list_of_weights
     ]
+    selected_update = _bulyan_cosine_similarity(flattened_weights, f, m)
 
-    # Call the Bulyan function
-    aggregated_update = _bulyan_cosine_similarity(flattened_weights, f, m)
-
-    # Reconstruct the weights into the original parameter shapes
-    param_shapes = [param.shape for param in list_of_weights[0]]
+    new_update = []
     offset = 0
-    aggregated_weights = []
-    for shape in param_shapes:
-        num_params = int(torch.tensor(shape).prod().item())
-        param = aggregated_update[offset : offset + num_params].view(shape)
-        aggregated_weights.append(param)
-        offset += num_params
+    for weights in list_of_weights[0]:
+        size = weights.numel()
+        new_update.append(selected_update[offset : offset + size].view(weights.shape))
+        offset += size
 
-    return aggregated_weights
+    return new_update
 
 
 @aggregate_weights
 def bulyan_cosine_similarity_layerwise(
     list_of_updates: List[List[torch.Tensor]], f: int = 1, m: int = 5
 ) -> List[torch.Tensor]:
-    """
-    Implements the layer-wise Bulyan operator using cosine similarity Krum.
+    updates = [
+        bulyan_cosine_similarity.__wrapped__(
+            [update[i] for update in list_of_updates], f, m
+        )[0]
+        for i in range(len(list_of_updates[0]))
+    ]
 
-    Args:
-        list_of_updates (List[List[torch.Tensor]]): List of client updates, each is a list of tensors per layer.
-        f (int): Maximum number of Byzantine clients to tolerate.
-
-    Returns:
-        List[torch.Tensor]: The aggregated update for each layer.
-    """
-    n = len(list_of_updates)
-    if n < 4 * f + 3:
-        raise ValueError(
-            "Number of clients is too small for the given number of Byzantine clients."
-        )
-
-    num_layers = len(list_of_updates[0])  # Number of layers
-    aggregated_update = []
-
-    for layer_idx in range(num_layers):
-        # Collect the layer parameters from all clients
-        layer_updates = [
-            client_updates[layer_idx].flatten() for client_updates in list_of_updates
-        ]
-        # Apply Bulyan using cosine similarity Krum to the layer
-        aggregated_layer = _bulyan_cosine_similarity(layer_updates, f, m)
-        # Reshape to original shape
-        aggregated_layer = aggregated_layer.view(list_of_updates[0][layer_idx].shape)
-        aggregated_update.append(aggregated_layer)
-
-    return aggregated_update
+    return updates
 
 
 def clip_by_norm(aggregator_func):
     @aggregate_weights
     def _func(list_of_weights: List[List[torch.Tensor]], *args, **kwargs):
-        # Transpose list_of_weights to group weights by parameter
-        list_of_weights_per_param = list(zip(*list_of_weights))  # Length: n_params
-
-        # Compute norms of each parameter across all clients
-        norms_per_param = []
-        for param_weights in list_of_weights_per_param:
-            param_weights_tensor = torch.stack(param_weights)  # Shape: (n_clients, ...)
-            param_weights_flat = param_weights_tensor.view(
-                param_weights_tensor.size(0), -1
-            )
-            norms = torch.norm(param_weights_flat, dim=1)  # Shape: (n_clients,)
-            norms_per_param.append(norms)
-
-        # Stack norms to get a tensor of shape (n_params, n_clients)
-        norms_tensor = torch.stack(norms_per_param)  # Shape: (n_params, n_clients)
-
-        # Compute median norms for each parameter across clients
-        median_norms = torch.median(norms_tensor, dim=1).values  # Shape: (n_params,)
-
-        # Call the aggregator function to get the selected update
-        selected_update = aggregator_func.__wrapped__(list_of_weights, *args, **kwargs)
-
-        # Compute norms of the selected update's parameters
-        selected_norms = [torch.norm(param) for param in selected_update]
-        selected_norms_tensor = torch.stack(selected_norms)  # Shape: (n_params,)
-
-        # Compute scaling factors to clip the norms
-        scaling_factors = torch.where(
-            selected_norms_tensor > median_norms,
-            median_norms / selected_norms_tensor,
-            torch.ones_like(selected_norms_tensor),
-        )
-
-        # Apply scaling factors to clip the selected update's parameters
-        clipped_update = [
-            param * scale for param, scale in zip(selected_update, scaling_factors)
+        norms_by_layer = [
+            [torch.norm(param[i]) for param in list_of_weights]
+            for i in range(len(list_of_weights[0]))
         ]
 
-        return clipped_update
+        medians = [torch.median(torch.tensor(norms)) for norms in norms_by_layer]
+        selected_update = aggregator_func.__wrapped__(list_of_weights, *args, **kwargs)
+        new_update = []
+        for i, param in enumerate(selected_update):
+            norm = torch.norm(param)
+            if norm > medians[i]:
+                param = param * (medians[i] / norm)
+            new_update.append(param)
+
+        return new_update
 
     return _func
+
+
+def _geomed(list_of_weigths: List[torch.Tensor]):
+    updates = torch.stack(list_of_weigths)
+    distances = torch.cdist(updates, updates, p=2)
+    dimensions_to_reduce = tuple(range(1, distances.dim()))
+    sum_distances = distances.sum(dim=dimensions_to_reduce)
+    min_index = sum_distances.argmin()
+    return updates[min_index]
+
+
+@aggregate_weights
+def geomed(list_of_weights: List[List[torch.Tensor]]):
+    updates_flattened = [
+        torch.cat([param.view(-1) for param in model_weights])
+        for model_weights in list_of_weights
+    ]
+
+    selected_update = _geomed(updates_flattened)
+
+    return_value = []
+    offset = 0
+    for weights in list_of_weights[0]:
+        size = weights.numel()
+        return_value.append(selected_update[offset : offset + size].view(weights.shape))
+        offset += size
+
+    return return_value
+
+
+@aggregate_weights
+def layerwise_geomed(list_of_weights: List[List[torch.Tensor]]):
+    selected_update = [
+        _geomed([weights[i] for weights in list_of_weights])
+        for i in range(len(list_of_weights[0]))
+    ]
+    return selected_update
+
+
+def _cosine_geomed(list_of_weigths: List[torch.Tensor]):
+    updates = torch.stack(list_of_weigths)
+    updates = updates.view(updates.size(0), -1)
+    norm_updates = updates / updates.norm(dim=1, keepdim=True)
+    similarities = torch.mm(norm_updates, norm_updates.t())
+    distances = 1 - similarities
+    distances.fill_diagonal_(0)
+    sum_distances = distances.sum(dim=1)
+    min_index = sum_distances.argmin()
+    return list_of_weigths[min_index]
+
+
+@aggregate_weights
+def cosine_geomed(list_of_weights: List[List[torch.Tensor]]):
+    flattened_list = [
+        torch.cat([param.view(-1) for param in model_weights])
+        for model_weights in list_of_weights
+    ]
+    selected_update = _cosine_geomed(flattened_list)
+    return_value = []
+    offset = 0
+    for weights in list_of_weights[0]:
+        size = weights.numel()
+        return_value.append(selected_update[offset : offset + size].view(weights.shape))
+        offset += size
+
+    return return_value
+
+
+@aggregate_weights
+def layerwise_cosine_geomed(list_of_weights: List[List[torch.Tensor]]):
+    selected_update = [
+        _cosine_geomed([weights[i] for weights in list_of_weights])
+        for i in range(len(list_of_weights[0]))
+    ]
+    return selected_update
