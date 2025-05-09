@@ -10,7 +10,7 @@ def get_dataset(dataset: str) -> Tuple[FedDataset, Dataset]:
     match dataset:
         case "emnist_non_iid":
             return _emnist_non_iid()
-        case "mnist":
+        case "mnist" | "mnist_mlp":
             return _emnist_iid()
         case "fashion":
             return _fashion_emnist()

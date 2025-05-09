@@ -28,6 +28,20 @@ class CNNModel(nn.Module):
         return self.fc(x)
 
 
+class MLPModel(nn.Module):
+    def __init__(self, num_classes=10):
+        super().__init__()
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(28 * 28, 14 * 14)
+        self.fc2 = nn.Linear(14 * 14, 8 * 8)
+        self.fc3 = nn.Linear(8 * 8, num_classes)
+
+    def forward(self, x):
+        x = self.flatten(x)
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
+
+
 mnist_transforms = transforms.Compose(
     [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
 )
@@ -53,13 +67,15 @@ def get_model(dataset: str):
             return get_efficient(num_classes=10)
         case "celeba_different":
             return CelebaNet(num_classes=2)
+        case "mnist_mlp":
+            return MLPModel()
         case _:
             raise ValueError(f"Unknown dataset: {dataset}")
 
 
 def get_transforms(dataset: str):
     match dataset:
-        case "emnist_non_iid" | "mnist" | "fashion" | "fashion_non_iid":
+        case "emnist_non_iid" | "mnist" | "fashion" | "fashion_non_iid" | "mnist_mlp":
             return mnist_transforms
         case "celeba" | "celeba_attractive":
             from torchvision.models import EfficientNet_B0_Weights

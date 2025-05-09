@@ -31,6 +31,10 @@ from aggregators import (
     layerwise_geomed,
     cosine_geomed,
     layerwise_cosine_geomed,
+    multikrum,
+    layerwise_multikrum,
+    multikrum_cosine_similarity,
+    multikrum_cosine_similarity_layerwise,
 )
 from datasets import get_dataset, poison_dataset, poison_binary_dataset
 from models import get_model, get_transforms
@@ -59,6 +63,7 @@ parser.add_argument(
         "cifar_10",
         "celeba_attractive",
         "celeba_different",
+        "mnist_mlp",
     ],
     default="emnist_non_iid",
     help="Dataset to use",
@@ -90,6 +95,10 @@ parser.add_argument(
         "layerwise_geomed",
         "cosine_geomed",
         "layerwise_cosine_geomed",
+        "multikrum",
+        "layerwise_multikrum",
+        "cosine_multikrum",
+        "layerwise_cosine_multikrum",
     ],
     default="fedavg",
     help="Aggregation operator to use",
@@ -168,6 +177,14 @@ match args.agg:
         AGG = cosine_geomed
     case "layerwise_cosine_geomed":
         AGG = layerwise_cosine_geomed
+    case "multikrum":
+        AGG = multikrum
+    case "layerwise_multikrum":
+        AGG = layerwise_multikrum
+    case "cosine_multikrum":
+        AGG = multikrum_cosine_similarity
+    case "layerwise_cosine_multikrum":
+        AGG = multikrum_cosine_similarity_layerwise
     case _:
         raise ValueError(f"Unknown aggregation operator: {args.agg}")
 
@@ -177,7 +194,7 @@ if args.clipgradients:
 if args.agg != "fedavg" and "geomed" not in args.agg:
     AGG = partial(AGG, f=args.f)
 
-if "bulyan" in args.agg:
+if "bulyan" in args.agg or "multikrum" in args.agg:
     AGG = partial(AGG, m=args.m)
 
 
@@ -191,6 +208,11 @@ def get_summary_writer_filename(args):
         "gradients_clipped" if args.clipgradients else "",
         "little" if args.little else "",
         f"lognum_{args.lognum}" if args.lognum > 0 else "",
+        (
+            f"posioned_clients_{args.poisonedclients}"
+            if (args.poisonedclients > 0 and not args.modelreplacement)
+            else ""
+        ),
     ]
     return f"runs/{args.dataset}/" + "".join(filter(None, parts))
 

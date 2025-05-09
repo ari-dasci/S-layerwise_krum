@@ -20,6 +20,16 @@ def layerwise_krum(weights: List[List[tl.tensor]], f: int = 1):
 
 
 @aggregate_weights
+def layerwise_multikrum(weights: List[List[tl.tensor]], f: int = 1, m: int = 5):
+    return [
+        multikrum.__wrapped__([[weights[j][i]] for j in range(len(weights))], m=m, f=f)[
+            0
+        ]
+        for i in range(len(weights[0]))
+    ]
+
+
+@aggregate_weights
 def layerwise_bulyan(weights: List[List[tl.tensor]], f: int = 1, m: int = 5):
     return [
         bulyan.__wrapped__([[weights[j][i]] for j in range(len(weights))], m=m, f=f)[0]
@@ -123,6 +133,29 @@ def krum_cosine_similarity(list_of_weights: List[List[torch.Tensor]], f: int = 1
 
 
 @aggregate_weights
+def multikrum_cosine_similarity(
+    list_of_weights: List[List[torch.Tensor]], f: int = 1, m: int = 5
+):
+    # Flatten and stack the weights from each model
+    flattened_weights = [
+        torch.cat([torch.flatten(param) for param in model_weights])
+        for model_weights in list_of_weights
+    ]
+
+    # Call the original Krum function
+    selected_indexes = _krum_cosine_similarity(flattened_weights, f, m)
+    selected_updates = [list_of_weights[i] for i in selected_indexes]
+
+    # Average the selected updates
+    selected_update = [
+        torch.mean(torch.stack([update[i] for update in selected_updates]), dim=0)
+        for i in range(len(list_of_weights[0]))
+    ]
+
+    return selected_update
+
+
+@aggregate_weights
 def krum_cosine_similarity_layerwise(
     list_of_weights: List[List[torch.Tensor]], f: int = 1
 ):
@@ -148,6 +181,20 @@ def krum_cosine_similarity_layerwise(
         selected_weights.append(param)
 
     return selected_weights
+
+
+@aggregate_weights
+def multikrum_cosine_similarity_layerwise(
+    list_of_weights: List[List[torch.Tensor]], f: int = 1, m: int = 5
+):
+    updates = [
+        multikrum_cosine_similarity.__wrapped__(
+            [[list_of_weights[j][i]] for j in range(len(list_of_weights))], f=f, m=m
+        )[0]
+        for i in range(len(list_of_weights[0]))
+    ]
+
+    return updates
 
 
 def _bulyan_cosine_similarity(
@@ -198,14 +245,12 @@ def bulyan_cosine_similarity(
 def bulyan_cosine_similarity_layerwise(
     list_of_updates: List[List[torch.Tensor]], f: int = 1, m: int = 5
 ) -> List[torch.Tensor]:
-    updates = [
-        bulyan_cosine_similarity.__wrapped__(
-            [update[i] for update in list_of_updates], f, m
-        )[0]
+    selected_updates = [
+        _bulyan_cosine_similarity([weights[i] for weights in list_of_updates], f, m)
         for i in range(len(list_of_updates[0]))
     ]
 
-    return updates
+    return selected_updates
 
 
 def clip_by_norm(aggregator_func):
@@ -261,8 +306,13 @@ def geomed(list_of_weights: List[List[torch.Tensor]]):
 @aggregate_weights
 def layerwise_geomed(list_of_weights: List[List[torch.Tensor]]):
     selected_update = [
-        _geomed([weights[i] for weights in list_of_weights])
+        _geomed([weights[i].view(-1) for weights in list_of_weights])
         for i in range(len(list_of_weights[0]))
+    ]
+
+    selected_update = [
+        update.view(param.shape)
+        for update, param in zip(selected_update, list_of_weights[0])
     ]
     return selected_update
 
